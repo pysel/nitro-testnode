@@ -2,6 +2,8 @@
 
 set -eu
 
+GETH_ADDRESS=http://host.docker.internal:8545
+
 NITRO_NODE_VERSION=offchainlabs/nitro-node:v3.2.1-d81324d-dev
 BLOCKSCOUT_VERSION=offchainlabs/blockscout:v1.1.0-0e716c8
 
@@ -31,8 +33,9 @@ if [[ $# -gt 0 ]] && [[ $1 == "script" ]]; then
     docker compose run scripts "$@"
     exit $?
 fi
-
-num_volumes=`docker volume ls --filter label=com.docker.compose.project=nitro-testnode -q | wc -l`
+num_volumes=0
+# num_volumes=`docker volume ls --filter label=com.docker.compose.project=nitro-testnode -q | wc -l`
+echo $num_volumes
 
 if [[ $num_volumes -eq 0 ]]; then
     force_init=true
@@ -418,37 +421,37 @@ if $force_init; then
         docker volume rm $leftoverVolumes
     fi
 
-    echo == Generating l1 keys
-    docker compose run scripts write-accounts
-    docker compose run --entrypoint sh geth -c "echo passphrase > /datadir/passphrase"
-    docker compose run --entrypoint sh geth -c "chown -R 1000:1000 /keystore"
-    docker compose run --entrypoint sh geth -c "chown -R 1000:1000 /config"
+    # echo == Generating l1 keys
+    # docker compose run scripts write-accounts
+    # docker compose run --entrypoint sh geth -c "echo passphrase > /datadir/passphrase"
+    # docker compose run --entrypoint sh geth -c "chown -R 1000:1000 /keystore"
+    # docker compose run --entrypoint sh geth -c "chown -R 1000:1000 /config"
 
-    echo == Writing geth configs
-    docker compose run scripts write-geth-genesis-config
+    # echo == Writing geth configs
+    # docker compose run scripts write-geth-genesis-config
 
-    if $consensusclient; then
-      echo == Writing prysm configs
-      docker compose run scripts write-prysm-config
+    # if $consensusclient; then
+    #   echo == Writing prysm configs
+    #   docker compose run scripts write-prysm-config
 
-      echo == Creating prysm genesis
-      docker compose run create_beacon_chain_genesis
-    fi
+    #   echo == Creating prysm genesis
+    #   docker compose run create_beacon_chain_genesis
+    # fi
 
-    echo == Initializing go-ethereum genesis configuration
-    docker compose run geth init --state.scheme hash --datadir /datadir/ /config/geth_genesis.json
+    # echo == Initializing go-ethereum genesis configuration
+    # docker compose run geth init --state.scheme hash --datadir /datadir/ /config/geth_genesis.json
 
-    if $consensusclient; then
-      echo == Running prysm
-      docker compose up --wait prysm_beacon_chain
-      docker compose up --wait prysm_validator
-    fi
+    # if $consensusclient; then
+    #   echo == Running prysm
+    #   docker compose up --wait prysm_beacon_chain
+    #   docker compose up --wait prysm_validator
+    # fi
 
-    echo == Starting geth
-    docker compose up --wait geth
+    # echo == Starting geth
+    # docker compose up --wait geth
 
-    echo == Waiting for geth to sync
-    docker compose run scripts wait-for-sync --url http://geth:8545
+    # echo == Waiting for geth to sync
+    # docker compose run scripts wait-for-sync --url $GETH_ADDRESS
 
     echo == Funding validator, sequencer and l2owner
     docker compose run scripts send-l1 --ethamount 1000 --to validator --wait
@@ -474,7 +477,7 @@ if $force_init; then
     wasmroot=`docker compose run --entrypoint sh sequencer -c "cat /home/user/target/machines/latest/module-root.txt"`
 
     echo == Deploying L2 chain
-    docker compose run -e PARENT_CHAIN_RPC="http://geth:8545" -e DEPLOYER_PRIVKEY=$l2ownerKey -e PARENT_CHAIN_ID=$l1chainid -e CHILD_CHAIN_NAME="arb-dev-test" -e MAX_DATA_SIZE=117964 -e OWNER_ADDRESS=$l2ownerAddress -e WASM_MODULE_ROOT=$wasmroot -e SEQUENCER_ADDRESS=$sequenceraddress -e AUTHORIZE_VALIDATORS=10 -e CHILD_CHAIN_CONFIG_PATH="/config/l2_chain_config.json" -e CHAIN_DEPLOYMENT_INFO="/config/deployment.json" -e CHILD_CHAIN_INFO="/config/deployed_chain_info.json" rollupcreator create-rollup-testnode
+    docker compose run -e PARENT_CHAIN_RPC=$GETH_ADDRESS -e DEPLOYER_PRIVKEY=$l2ownerKey -e PARENT_CHAIN_ID=$l1chainid -e CHILD_CHAIN_NAME="arb-dev-test" -e MAX_DATA_SIZE=117964 -e OWNER_ADDRESS=$l2ownerAddress -e WASM_MODULE_ROOT=$wasmroot -e SEQUENCER_ADDRESS=$sequenceraddress -e AUTHORIZE_VALIDATORS=10 -e CHILD_CHAIN_CONFIG_PATH="/config/l2_chain_config.json" -e CHAIN_DEPLOYMENT_INFO="/config/deployment.json" -e CHILD_CHAIN_INFO="/config/deployed_chain_info.json" rollupcreator create-rollup-testnode
     docker compose run --entrypoint sh rollupcreator -c "jq [.[]] /config/deployed_chain_info.json > /config/l2_chain_info.json"
 
 fi # $force_init
@@ -530,7 +533,7 @@ if $force_init; then
     if $tokenbridge; then
         echo == Deploying L1-L2 token bridge
         sleep 10 # no idea why this sleep is needed but without it the deploy fails randomly
-        docker compose run -e ROLLUP_OWNER_KEY=$l2ownerKey -e ROLLUP_ADDRESS=$rollupAddress -e PARENT_KEY=$devprivkey -e PARENT_RPC=http://geth:8545 -e CHILD_KEY=$devprivkey -e CHILD_RPC=http://sequencer:8547 tokenbridge deploy:local:token-bridge
+        docker compose run -e ROLLUP_OWNER_KEY=$l2ownerKey -e ROLLUP_ADDRESS=$rollupAddress -e PARENT_KEY=$devprivkey -e PARENT_RPC=$GETH_ADDRESS -e CHILD_KEY=$devprivkey -e CHILD_RPC=http://sequencer:8547 tokenbridge deploy:local:token-bridge
         docker compose run --entrypoint sh tokenbridge -c "cat network.json && cp network.json l1l2_network.json && cp network.json localNetwork.json"
         echo
     fi
